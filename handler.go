@@ -1,16 +1,18 @@
 package main
 
-import "sync"
+import (
+	"sync"
 
-func ping(args []Value) Value {
-	if len(args) == 0 {
-		return Value{typ: "string", str: "PONG"}
-	}
+	"github.com/MohammadAzhari/golang-redis/resp"
+)
 
-	return Value{typ: "string", str: args[0].bulk}
-}
+var sets = map[string]string{}
+var setMu = sync.RWMutex{}
 
-var handlers = map[string]func(v []Value) Value{
+var hsets = map[string]map[string]string{}
+var hsetMu = sync.RWMutex{}
+
+var handlers = map[string]func(v []resp.Value) resp.Value{
 	"PING":    ping,
 	"SET":     set,
 	"GET":     get,
@@ -19,101 +21,103 @@ var handlers = map[string]func(v []Value) Value{
 	"HGETALL": hgetall,
 }
 
-var SETs = map[string]string{}
-var setMu = sync.RWMutex{}
-
-func set(args []Value) Value {
-	if len(args) != 2 {
-		return Value{typ: "error", str: "error: SET command takes 2 args"}
+func ping(args []resp.Value) resp.Value {
+	if len(args) == 0 {
+		return resp.Value{Type: "string", String: "PONG"}
 	}
 
-	key := args[0].bulk
-	val := args[1].bulk
-
-	setMu.Lock()
-	SETs[key] = val
-	setMu.Unlock()
-
-	return Value{typ: "string", str: "OK"}
+	return resp.Value{Type: "string", String: args[0].String}
 }
 
-func get(args []Value) Value {
-	if len(args) != 1 {
-		return Value{typ: "error", str: "error: GET command takes 1 args"}
+func set(args []resp.Value) resp.Value {
+	if len(args) != 2 {
+		return resp.Value{Type: "error", String: "error: SET command takes 2 args"}
 	}
 
-	key := args[0].bulk
+	key := args[0].String
+	val := args[1].String
+
+	setMu.Lock()
+	sets[key] = val
+	setMu.Unlock()
+
+	return resp.Value{Type: "string", String: "OK"}
+}
+
+func get(args []resp.Value) resp.Value {
+	if len(args) != 1 {
+		return resp.Value{Type: "error", String: "error: GET command takes 1 args"}
+	}
+
+	key := args[0].String
 	setMu.RLock()
-	val, ok := SETs[key]
+	val, ok := sets[key]
 	setMu.RUnlock()
 
 	if !ok {
-		return Value{typ: "null"}
+		return resp.Value{Type: "null"}
 	}
 
-	return Value{typ: "string", str: val}
+	return resp.Value{Type: "string", String: val}
 }
 
-var HSETs = map[string]map[string]string{}
-var hsetMu = sync.RWMutex{}
-
-func hset(args []Value) Value {
+func hset(args []resp.Value) resp.Value {
 	if len(args) != 3 {
-		return Value{typ: "error", str: "error: GET command takes 3 args"}
+		return resp.Value{Type: "error", String: "error: GET command takes 3 args"}
 	}
 
-	collection := args[0].bulk
-	key := args[1].bulk
-	val := args[2].bulk
+	collection := args[0].String
+	key := args[1].String
+	val := args[2].String
 
 	hsetMu.Lock()
-	if _, ok := HSETs[collection]; !ok {
-		HSETs[collection] = map[string]string{}
+	if _, ok := hsets[collection]; !ok {
+		hsets[collection] = map[string]string{}
 	}
-	HSETs[collection][key] = val
+	hsets[collection][key] = val
 	hsetMu.Unlock()
 
-	return Value{typ: "string", str: "OK"}
+	return resp.Value{Type: "string", String: "OK"}
 }
 
-func hget(args []Value) Value {
+func hget(args []resp.Value) resp.Value {
 	if len(args) != 2 {
-		return Value{typ: "error", str: "error: GET command takes 2 args"}
+		return resp.Value{Type: "error", String: "error: GET command takes 2 args"}
 	}
 
-	collection := args[0].bulk
-	key := args[1].bulk
+	collection := args[0].String
+	key := args[1].String
 
 	hsetMu.RLock()
-	val, ok := HSETs[collection][key]
+	val, ok := hsets[collection][key]
 	hsetMu.RUnlock()
 
 	if !ok {
-		return Value{typ: "null"}
+		return resp.Value{Type: "null"}
 	}
 
-	return Value{typ: "string", str: val}
+	return resp.Value{Type: "string", String: val}
 }
 
-func hgetall(args []Value) Value {
+func hgetall(args []resp.Value) resp.Value {
 	if len(args) != 1 {
-		return Value{typ: "error", str: "error: GET command takes 1 arg"}
+		return resp.Value{Type: "error", String: "error: GET command takes 1 arg"}
 	}
 
-	collection := args[0].bulk
+	collection := args[0].String
 
 	hsetMu.RLock()
-	col, ok := HSETs[collection]
+	col, ok := hsets[collection]
 	hsetMu.RUnlock()
 
 	if !ok {
-		return Value{typ: "null"}
+		return resp.Value{Type: "null"}
 	}
 
-	array := make([]Value, 0)
+	array := make([]resp.Value, 0)
 	for _, val := range col {
-		array = append(array, Value{typ: "string", str: val})
+		array = append(array, resp.Value{Type: "string", String: val})
 	}
 
-	return Value{typ: "array", array: array}
+	return resp.Value{Type: "array", Array: array}
 }

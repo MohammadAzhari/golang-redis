@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/MohammadAzhari/golang-redis/resp"
 )
 
 type Aof struct {
@@ -48,7 +50,7 @@ func (aof *Aof) Close() error {
 	return aof.file.Close()
 }
 
-func (aof *Aof) Write(value Value) error {
+func (aof *Aof) Write(value resp.Value) error {
 	aof.mu.Lock()
 	defer aof.mu.Unlock()
 
@@ -60,13 +62,13 @@ func (aof *Aof) Write(value Value) error {
 	return nil
 }
 
-func (aof *Aof) Read(fn func(value Value)) error {
+func (aof *Aof) Read(fn func(value resp.Value)) error {
 	aof.mu.Lock()
 	defer aof.mu.Unlock()
 
 	aof.file.Seek(0, io.SeekStart)
 
-	reader := NewResp(aof.file)
+	reader := resp.NewRespReader(aof.file)
 
 	for {
 		value, err := reader.Read()

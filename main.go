@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/MohammadAzhari/golang-redis/resp"
 )
 
 func main() {
@@ -14,6 +16,7 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+
 	conn, err := listener.Accept()
 	if err != nil {
 		fmt.Println(err)
@@ -22,50 +25,64 @@ func main() {
 
 	defer conn.Close()
 
+	aof, err := NewAof("database.aof")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	defer aof.Close()
+
+	err = aof.Read((func(value resp.Value) {
+		handleValue(value)
+	}))
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	for {
-		resp := NewResp(conn)
+		respReader := resp.NewRespReader(conn)
 
-		aof, err := NewAof("database.aof")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		defer aof.Close()
-
-		v, err := resp.Read()
+		input, err := respReader.Read()
 
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
-		if v.typ != "array" || len(v.array) == 0 {
-			fmt.Println("Excpecting array of length more than 0")
-			continue
+		output := handleValue(input)
+		err = aof.Write(input)
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
 
-		command := strings.ToUpper(v.array[0].bulk)
-		handler, ok := handlers[command]
+		respWriter := resp.NewRespWriter(conn)
 
-		w := NewWriter(conn)
+		err = respWriter.Write(output)
 
-		if !ok {
-			fmt.Println("Invalid command: ", command)
-			w.Write(Value{typ: "string", str: ""})
-			continue
-		}
-
-		if command == "SET" || command == "HSET" {
-			aof.Write(v)
-		}
-
-		args := v.array[1:]
-		result := handler(args)
-
-		err = w.Write(result)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 	}
+}
+
+func handleValue(value resp.Value) resp.Value {
+	if value.Type != "array" || len(value.Array) == 0 {
+		fmt.Println("Excpecting array of length more than 0")
+		return resp.Value{Type: "error", String: "Excpecting array of length more than 0"}
+	}
+
+	command := strings.ToUpper(value.Array[0].String)
+	handler, ok := handlers[command]
+
+	if !ok {
+		return resp.Value{Type: "error", String: "Invalid command: " + command}
+	}
+
+	args := value.Array[1:]
+	return handler(args)
 }
